@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Writing a linear congruential generator in Go — Akash Kumar P R</title>
+<style>
+  body {
+    max-width: 700px;
+    margin: 40px auto;
+    padding: 0 15px;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 16px;
+    line-height: 1.6;
+    color: #111;
+    background: #fff;
+  }
+  .back {
+    font-size: 14px;
+    margin-bottom: 30px;
+    display: inline-block;
+  }
+  h1 {
+    font-size: 24px;
+    margin-bottom: 4px;
+  }
+  .meta {
+    color: #666;
+    font-size: 14px;
+    margin-top: 0;
+    margin-bottom: 30px;
+  }
+  h2 {
+    font-size: 18px;
+    margin-top: 35px;
+    margin-bottom: 10px;
+  }
+  p {
+    margin: 14px 0;
+  }
+  ul, ol {
+    margin: 14px 0;
+    padding-left: 22px;
+  }
+  li {
+    margin-bottom: 6px;
+  }
+  a {
+    color: #0000EE;
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+  code {
+    background: #f2f2f2;
+    padding: 1px 5px;
+    font-size: 14px;
+    font-family: Consolas, Monaco, monospace;
+  }
+  pre {
+    background: #f2f2f2;
+    padding: 12px;
+    overflow-x: auto;
+    font-size: 14px;
+    font-family: Consolas, Monaco, monospace;
+    line-height: 1.4;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+  }
+  table {
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 15px;
+  }
+  td, th {
+    border: 1px solid #ccc;
+    padding: 5px 10px;
+    text-align: left;
+  }
+  footer {
+    margin-top: 50px;
+    padding-top: 10px;
+    border-top: 1px solid #ccc;
+    font-size: 13px;
+    color: #888;
+  }
+</style>
+</head>
+<body>
+
+<a class="back" href="../index.html">&larr; back to home</a>
+
+<h1>Writing a linear congruential generator in Go</h1>
+<p class="meta">July 2026</p>
+
+<p>
+I wanted a pseudo-random number generator that didn't lean on
+<code>math/rand</code> — something small enough to read in one sitting
+and understand completely. A linear congruential generator (LCG) is
+about as simple as PRNGs get, so that's what I built.
+</p>
+
+<h2>The core idea</h2>
+
+<p>
+An LCG produces its next number from its previous one with a single
+recurrence:
+</p>
+
+<pre><code>state = (a * state + c) mod m</code></pre>
+
+<p>
+Three constants control everything: <code>a</code> is the multiplier,
+<code>c</code> is the increment, and <code>m</code> is the modulus.
+Pick good constants and you get a sequence that looks random and has
+a long period before it repeats. Pick bad ones and you get short
+cycles or visible patterns. glibc's <code>rand()</code> uses
+<code>a = 1103515245</code>, <code>c = 12345</code>, and
+<code>m = 2^31</code> — the same constants I used here, mostly so the
+output is comparable to something well-known.
+</p>
+
+<h2>Using a bitmask instead of modulo</h2>
+
+<p>
+Because <code>m</code> is a power of two (2^31), taking the modulus
+is the same as masking off the low 31 bits:
+</p>
+
+<pre><code>mask = 2147483647 // 2^31 - 1
+state = (a*state + c) & mask</code></pre>
+
+<p>
+<code>&</code> is a single bitwise instruction, while <code>%</code>
+on most architectures involves an actual division. For an LCG that
+might get called in a tight loop, this is a small but free win — and
+it's a standard trick specifically because <code>m</code> was chosen
+to be a power of two in the first place.
+</p>
+
+<h2>Why shift before returning</h2>
+
+<p>
+A well-known weakness of power-of-two LCGs is that the
+<strong>low bits have a short period and poor randomness</strong> —
+the very lowest bit can alternate in an obvious pattern. The high
+bits are much better behaved. So instead of returning
+<code>state</code> directly, I shift right and mask down to 15 bits:
+</p>
+
+<pre><code>return (state >> 16) & 0x7FFF</code></pre>
+
+<p>
+This discards the low 16 bits entirely and keeps a 15-bit slice from
+the healthier upper range — which also happens to match the
+<code>[0, 32767]</code> range of POSIX <code>rand()</code>, so the
+output is directly comparable to the C standard library version.
+</p>
+
+<h2>The Go implementation</h2>
+
+<pre><code>type LCG struct {
+	a     int64
+	c     int64
+	mask  int64
+	state int64
+}
+
+func newLCG(seed int64) *LCG {
+	return &LCG{
+		a:     1103515245,
+		c:     12345,
+		mask:  2147483647,
+		state: seed,
+	}
+}
+
+func (l *LCG) rand_next() int64 {
+	l.state = (l.a * l.state + l.c) & l.mask
+	return (l.state >> 16) & 0x7FFF
+}
+
+func (l *LCG) rand_range(min, max int64) int64 {
+	if min > max {
+		min, max = max, min
+	}
+	r := l.rand_next()
+	return (r % (max - min + 1)) + min
+}</code></pre>
+
+<p>
+A couple of small Go-specific notes:
+</p>
+
+<ul>
+  <li>
+    The constructor is named <code>newLCG</code>, not
+    <code>new</code> — Go's built-in <code>new()</code> is a
+    reserved allocation function, so shadowing it would work but reads
+    badly and confuses anyone skimming the file.
+  </li>
+  <li>
+    <code>rand_range</code> swaps <code>min</code> and
+    <code>max</code> if they're passed in backwards, so the function
+    is forgiving of caller mistakes rather than silently returning
+    garbage.
+  </li>
+</ul>
+
+<h2>Seeding and running it</h2>
+
+<p>
+The seed is just the current time in milliseconds — fine for
+non-cryptographic use like tests, games, or simulations, but worth
+saying plainly: <strong>this is not a cryptographically secure
+generator</strong>. The state is fully predictable once you know two
+consecutive outputs and the constants, which is true of every LCG.
+Don't use this for tokens, keys, or anything security-sensitive — for
+that, Go's <code>crypto/rand</code> is the right tool.
+</p>
+
+<pre><code>seed := time.Now().UnixMilli()
+rng := newLCG(seed)
+
+for i := 0; i < 5; i++ {
+	fmt.Println(rng.rand_next())
+}
+
+for i := 0; i < 5; i++ {
+	fmt.Println(rng.rand_range(1, 10))
+}</code></pre>
+
+<p>
+Each call to <code>rand_next()</code> mutates <code>l.state</code>
+and returns the next value in the sequence, so calling it repeatedly
+on the same <code>*LCG</code> walks forward through the generator
+exactly like a C program calling <code>rand()</code> in a loop would.
+</p>
+
+<h2>What I'd add next</h2>
+
+<ul>
+  <li>A period-length check, to confirm the sequence doesn't repeat
+  sooner than expected for a given seed.</li>
+  <li>A simple distribution test — bucket a few thousand outputs of
+  <code>rand_range(1, 10)</code> and confirm the buckets come out
+  roughly even.</li>
+  <li>Thread-safety, if this ever gets used from more than one
+  goroutine — right now two goroutines calling <code>rand_next()</code>
+  on the same <code>*LCG</code> would race on <code>l.state</code>.</li>
+</ul>
+
+<footer>
+  <a href="mailto:me@akashkumarpr.in">me@akashkumarpr.in</a>
+</footer>
+
+</body>
+</html>
