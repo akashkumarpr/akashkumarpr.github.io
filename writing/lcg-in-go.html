@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Writing a linear congruential generator in Go — Akash Kumar P R</title>
+<title>Writing a linear congruential generator in Go - Akash Kumar P R</title>
 <style>
   body {
     max-width: 700px;
@@ -94,11 +94,11 @@
 <a class="back" href="../index.html">&larr; back to home</a>
 
 <h1>Writing a linear congruential generator in Go</h1>
-<p class="meta">July 2026</p>
+<p class="meta">2026 July 09</p>
 
 <p>
 I wanted a pseudo-random number generator that didn't lean on
-<code>math/rand</code> — something small enough to read in one sitting
+<code>math/rand</code> something small enough to read in one sitting
 and understand completely. A linear congruential generator (LCG) is
 about as simple as PRNGs get, so that's what I built.
 </p>
@@ -119,7 +119,7 @@ Pick good constants and you get a sequence that looks random and has
 a long period before it repeats. Pick bad ones and you get short
 cycles or visible patterns. glibc's <code>rand()</code> uses
 <code>a = 1103515245</code>, <code>c = 12345</code>, and
-<code>m = 2^31</code> — the same constants I used here, mostly so the
+<code>m = 2^31</code> the same constants I used here, mostly so the
 output is comparable to something well-known.
 </p>
 
@@ -136,7 +136,7 @@ state = (a*state + c) & mask</code></pre>
 <p>
 <code>&</code> is a single bitwise instruction, while <code>%</code>
 on most architectures involves an actual division. For an LCG that
-might get called in a tight loop, this is a small but free win — and
+might get called in a tight loop, this is a small but free win and
 it's a standard trick specifically because <code>m</code> was chosen
 to be a power of two in the first place.
 </p>
@@ -145,7 +145,7 @@ to be a power of two in the first place.
 
 <p>
 A well-known weakness of power-of-two LCGs is that the
-<strong>low bits have a short period and poor randomness</strong> —
+<strong>low bits have a short period and poor randomness</strong>
 the very lowest bit can alternate in an obvious pattern. The high
 bits are much better behaved. So instead of returning
 <code>state</code> directly, I shift right and mask down to 15 bits:
@@ -155,7 +155,7 @@ bits are much better behaved. So instead of returning
 
 <p>
 This discards the low 16 bits entirely and keeps a 15-bit slice from
-the healthier upper range — which also happens to match the
+the healthier upper range which also happens to match the
 <code>[0, 32767]</code> range of POSIX <code>rand()</code>, so the
 output is directly comparable to the C standard library version.
 </p>
@@ -218,7 +218,7 @@ non-cryptographic use like tests, games, or simulations, but worth
 saying plainly: <strong>this is not a cryptographically secure
 generator</strong>. The state is fully predictable once you know two
 consecutive outputs and the constants, which is true of every LCG.
-Don't use this for tokens, keys, or anything security-sensitive — for
+Don't use this for tokens, keys, or anything security-sensitive for
 that, Go's <code>crypto/rand</code> is the right tool.
 </p>
 
@@ -245,11 +245,11 @@ exactly like a C program calling <code>rand()</code> in a loop would.
 <ul>
   <li>A period-length check, to confirm the sequence doesn't repeat
   sooner than expected for a given seed.</li>
-  <li>A simple distribution test — bucket a few thousand outputs of
+  <li>A simple distribution test bucket a few thousand outputs of
   <code>rand_range(1, 10)</code> and confirm the buckets come out
   roughly even.</li>
   <li>Thread-safety, if this ever gets used from more than one
-  goroutine — right now two goroutines calling <code>rand_next()</code>
+  goroutine right now two goroutines calling <code>rand_next()</code>
   on the same <code>*LCG</code> would race on <code>l.state</code>.</li>
 </ul>
 
