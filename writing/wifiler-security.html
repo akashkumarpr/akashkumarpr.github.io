@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="description" content="Building wifiler, a local Wi-Fi file server in Go, and the security tradeoffs of a tool that only trusts the network it's on.">
+        <meta name="keywords" content="wifiler, Go, Golang, file server, Wi-Fi, QR code, local network, security, session key">
+        <meta name="author" content="Akash Kumar P R">
+        <title>wifiler: sharing files over Wi-Fi without trusting the cloud - Akash Kumar P R</title>
+        <style>
+  body {
+    max-width: 700px;
+    margin: 40px auto;
+    padding: 0 15px;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 16px;
+    line-height: 1.5;
+    color: #111;
+    background: #fff;
+  }
+  h1 {
+    font-size: 22px;
+    margin-bottom: 2px;
+  }
+  .tagline {
+    color: #555;
+    margin-top: 0;
+    margin-bottom: 25px;
+    font-size: 15px;
+  }
+  h2 {
+    font-size: 16px;
+    margin-top: 30px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 3px;
+  }
+  ul {
+    margin: 6px 0;
+    padding-left: 20px;
+  }
+  li {
+    margin-bottom: 6px;
+  }
+  a {
+    color: #0000EE;
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+  .meta {
+    color: #666;
+    font-size: 14px;
+  }
+  footer {
+    margin-top: 50px;
+    padding-top: 10px;
+    border-top: 1px solid #ccc;
+    font-size: 13px;
+    color: #888;
+  }
+  code {
+    background: #f2f2f2;
+    padding: 1px 4px;
+    font-size: 14px;
+  }
+  pre {
+    background: #f2f2f2;
+    padding: 10px 12px;
+    overflow-x: auto;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+  }
+        </style>
+    </head>
+    <body>
+        <p><a href="../index.html">&larr; back to home</a></p>
+        <h1>wifiler: sharing files over Wi-Fi without trusting the cloud</h1>
+        <p class="tagline">2026 July 10</p>
+
+        <p>
+            I wanted to send files between my laptop and phone without opening a cloud drive, plugging in a cable, or installing an app on the phone. The obvious answer is a small HTTP server: run it in a folder, print a QR code, let the phone's browser do the rest. That's <a href="https://github.com/akashkumarpr/wifiler">wifiler</a>. The interesting part wasn't the file serving - that's a <code>net/http</code> handler and a directory listing - it was deciding, deliberately, what kind of tool this should and shouldn't try to be.
+        </p>
+
+        <h2>Finding the right IP address is harder than it looks</h2>
+        <p>
+            The first version used <code>net.InterfaceAddrs()</code> and returned the first non-loopback IPv4 address it found. That's fine until your machine has more than one network interface, which on any modern laptop is basically always - Docker, WSL, a VPN client, or (the one that actually bit me) Windows Mobile Hotspot, which hands out addresses in <code>192.168.137.x</code> by default. If that adapter enumerates first, wifiler prints a perfectly valid, completely unreachable address, and the phone just times out with no clear reason why.
+        </p>
+        <p>
+            The fix was to stop enumerating interfaces and instead ask the OS which address it would actually use to route outbound traffic:
+        </p>
+        <pre><code>conn, err := net.Dial("udp", "8.8.8.8:80")
+...
+localAddr := conn.LocalAddr().(*net.UDPAddr)</code></pre>
+        <p>
+            No packets are sent - UDP dial is just a local routing decision. Whatever address comes back is, by definition, the one your machine would use to reach the outside world, which is a much better proxy for "the phone on my Wi-Fi can reach this" than blindly picking the first interface in a list.
+        </p>
+        <p>
+            WSL2 gets its own warning rather than a silent failure. By default WSL2 sits behind NAT, so the address it finds is real but only reachable from inside Windows/WSL itself - no code fix changes that, so wifiler just detects it (checking <code>/proc/version</code> and the <code>WSL_DISTRO_NAME</code> env var) and prints the actual fix: enable WSL2 mirrored networking, or just run the Windows binary directly.
+        </p>
+
+        <h2>One key, generated fresh, never written to disk</h2>
+        <p>
+            wifiler generates a random session key every time it starts and encodes it into the QR code. There's no config file, no persisted credential, nothing to leak if an old laptop gets sold. Scan the code, get a cookie, keep browsing - the key itself only has to survive the trip from screen to camera.
+        </p>
+        <p>
+            That said, it's a deliberately modest security model, not a strong one:
+        </p>
+        <ul>
+            <li><strong>No revocation.</strong> Once a device has the cookie, it's in until the whole server stops. There's no per-device kick.</li>
+            <li><strong>Plaintext HTTP.</strong> The key rides in the URL and the cookie rides unencrypted. On a WPA2/3 home network that's a reasonable risk to accept; on open Wi-Fi it isn't, so the tool is explicitly scoped to "trusted local networks" rather than pretending to be more than that.</li>
+        </ul>
+        <p>
+            I'd rather ship a small tool that's honest about its scope than a slightly bigger one that quietly overpromises.
+        </p>
+
+        <h2>Keeping the browsing sandboxed</h2>
+        <p>
+            The one thing wifiler absolutely cannot get wrong is letting a phone browse outside the folder it was launched from. Every path that crosses a request boundary gets checked with <code>filepath.Rel</code> against a known base directory, not a <code>strings.Contains(path, "..")</code> blacklist:
+        </p>
+        <pre><code>rel, err := filepath.Rel(baseDir, candidate)
+if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+    // reject
+}</code></pre>
+        <p>
+            Blacklisting substrings is the kind of check that looks right and lets something like a URL-encoded traversal or a symlink slip through. Resolving the actual relative path and checking whether it climbs outside the base is the only version of this I trust.
+        </p>
+
+        <h2>Making every device its own guest, not one shared armchair</h2>
+        <p>
+            The first multi-device version had a bug that's obvious in hindsight: there was one global "current directory" variable, so if your phone opened a subfolder, everyone else's browser jumped there too. Fine for one person, confusing the moment two devices connect.
+        </p>
+        <p>
+            The fix was to stop treating the session key and the "which folder am I looking at" state as the same thing. Now there are two cookies: the session key proves you're allowed in at all, and a second, per-device client ID (generated the same way, just for tracking, not authorization) maps to that device's own current directory in a small in-memory map. Opening a folder on one phone no longer moves anyone else's view, and the file-change watcher polls every directory any connected device currently has open, not just one.
+        </p>
+
+        <h2>What's still open</h2>
+        <ul>
+            <li>No upload size or rate limiting beyond a 32MB in-memory form cap - someone with access could still fill your disk on purpose.</li>
+            <li>The WebSocket handling is hand-rolled and only correctly handles the one small "reload" message it currently sends; extending the protocol would need a real frame parser.</li>
+            <li>No CSRF token on state-changing requests, mitigated for now by <code>SameSite=Strict</code> cookies, but worth revisiting if that ever loosens.</li>
+        </ul>
+        <p>
+            None of these are things I'm trying to hide - they're the honest edges of a tool built for a specific, narrow job: get a file from one device to another, on a network you already trust, without asking you to trust anything else.
+        </p>
+
+        <footer>
+            <a href="../index.html">&larr; back to home</a> &middot; <a href="mailto:me@akashkumarpr.in">me@akashkumarpr.in</a>
+        </footer>
+    </body>
+</html>
