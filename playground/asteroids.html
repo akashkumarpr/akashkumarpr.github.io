@@ -90,13 +90,14 @@
     bottom: 0;
     left: 0;
     right: 0;
-    padding: 12px;
+    padding: 14px;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: center;
   }
   .ctl-group {
     display: flex;
-    gap: 10px;
+    align-items: center;
+    gap: 12px;
   }
   .ctl-btn {
     width: 56px;
@@ -120,15 +121,22 @@
     height: 68px;
     font-size: 14px;
   }
+
+  /* Pause button lives in its own corner, independent of the bottom control row */
   #pauseBtn {
-    width: 44px;
-    height: 44px;
-    font-size: 16px;
-    align-self: flex-end;
+    display: none;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 40px;
+    height: 40px;
+    font-size: 14px;
+    z-index: 2;
   }
 
   @media (hover: none) and (pointer: coarse) {
     #controls { display: flex; }
+    #pauseBtn { display: flex; }
     #hint.desktop-hint { display: none; }
     #hint.mobile-hint { display: block; }
   }
@@ -150,20 +158,20 @@
         <canvas id="game" width="800" height="600"></canvas>
         <div id="hud"></div>
         <div id="msg"></div>
+        <div class="ctl-btn" id="pauseBtn">&#10073;&#10073;</div>
         <div id="controls">
             <div class="ctl-group">
                 <div class="ctl-btn" id="leftBtn">&larr;</div>
                 <div class="ctl-btn" id="rightBtn">&rarr;</div>
             </div>
             <div class="ctl-group">
-                <div class="ctl-btn" id="pauseBtn">&#10073;&#10073;</div>
                 <div class="ctl-btn" id="thrustBtn">&uarr;</div>
                 <div class="ctl-btn" id="fireBtn">FIRE</div>
             </div>
         </div>
     </div>
     <p id="hint" class="desktop-hint">Arrows/WASD to move &middot; Space to shoot &middot; P to pause</p>
-    <p id="hint" class="mobile-hint">Left/right to turn &middot; up arrow to thrust &middot; FIRE to shoot &middot; &#10073;&#10073; to pause &middot; tap game to restart on game over</p>
+    <p id="hint" class="mobile-hint">Left/right to turn &middot; up arrow to thrust &middot; FIRE to shoot &middot; &#10073;&#10073; (top right) to pause &middot; tap to restart on game over</p>
 
     <footer><a href="../index.html">&larr; back to home</a> &middot; <a href="mailto:me@akashkumarpr.in">me@akashkumarpr.in</a></footer>
 
@@ -174,6 +182,7 @@ const W = canvas.width, H = canvas.height;
 const hud = document.getElementById('hud');
 const msgEl = document.getElementById('msg');
 const gameWrap = document.getElementById('game-wrap');
+const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
 
 // ---------- Utility ----------
 function wrap(pos, max) {
@@ -422,7 +431,9 @@ function update() {
         lives--;
         if (lives <= 0) {
           gameOver = true;
-          msgEl.textContent = 'GAME OVER — press R or tap to restart';
+          msgEl.textContent = isTouchDevice
+            ? 'GAME OVER — tap to restart'
+            : 'GAME OVER — press R or tap to restart';
         } else {
           ship = newShip();
         }
