@@ -120,6 +120,12 @@
     height: 68px;
     font-size: 14px;
   }
+  #pauseBtn {
+    width: 44px;
+    height: 44px;
+    font-size: 16px;
+    align-self: flex-end;
+  }
 
   @media (hover: none) and (pointer: coarse) {
     #controls { display: flex; }
@@ -150,13 +156,14 @@
                 <div class="ctl-btn" id="rightBtn">&rarr;</div>
             </div>
             <div class="ctl-group">
+                <div class="ctl-btn" id="pauseBtn">&#10073;&#10073;</div>
                 <div class="ctl-btn" id="thrustBtn">&uarr;</div>
                 <div class="ctl-btn" id="fireBtn">FIRE</div>
             </div>
         </div>
     </div>
     <p id="hint" class="desktop-hint">Arrows/WASD to move &middot; Space to shoot &middot; P to pause</p>
-    <p id="hint" class="mobile-hint">Left/right to turn &middot; up arrow to thrust &middot; FIRE to shoot &middot; tap game to restart on game over</p>
+    <p id="hint" class="mobile-hint">Left/right to turn &middot; up arrow to thrust &middot; FIRE to shoot &middot; &#10073;&#10073; to pause &middot; tap game to restart on game over</p>
 
     <footer><a href="../index.html">&larr; back to home</a> &middot; <a href="mailto:me@akashkumarpr.in">me@akashkumarpr.in</a></footer>
 
@@ -187,23 +194,50 @@ window.addEventListener('keyup', e => { keys[e.code] = false; });
 // Map touch buttons onto the same key flags the keyboard uses
 function bindHold(el, code) {
   if (!el) return;
-  const start = e => { e.preventDefault(); keys[code] = true; };
-  const end = e => { e.preventDefault(); keys[code] = false; };
+  const start = e => { e.preventDefault(); e.stopPropagation(); keys[code] = true; };
+  const end = e => { e.preventDefault(); e.stopPropagation(); keys[code] = false; };
   el.addEventListener('touchstart', start, { passive: false });
   el.addEventListener('touchend', end, { passive: false });
   el.addEventListener('touchcancel', end, { passive: false });
-  // also support mouse for testing on desktop
+  // also support mouse so the same buttons work with a mouse on desktop
   el.addEventListener('mousedown', start);
   el.addEventListener('mouseup', end);
   el.addEventListener('mouseleave', end);
+  // don't let the click "bubble up" into the game-wrap's restart-on-tap handler
+  el.addEventListener('click', e => e.stopPropagation());
 }
 bindHold(document.getElementById('leftBtn'), 'ArrowLeft');
 bindHold(document.getElementById('rightBtn'), 'ArrowRight');
 bindHold(document.getElementById('thrustBtn'), 'ArrowUp');
 bindHold(document.getElementById('fireBtn'), 'Space');
 
-// Tap anywhere on the game to restart when game over (mobile has no R key)
+// Pause button: tap to toggle, not hold (mobile has no P key)
+const pauseBtn = document.getElementById('pauseBtn');
+if (pauseBtn) {
+  pauseBtn.addEventListener('touchstart', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!gameOver) {
+      paused = !paused;
+      msgEl.textContent = paused ? 'PAUSED' : '';
+    }
+  }, { passive: false });
+  pauseBtn.addEventListener('mousedown', e => {
+    e.stopPropagation();
+    if (!gameOver) {
+      paused = !paused;
+      msgEl.textContent = paused ? 'PAUSED' : '';
+    }
+  });
+  pauseBtn.addEventListener('click', e => e.stopPropagation());
+}
+
+// Tap/click anywhere on the game to restart when game over
+// (mobile has no R key, and desktop players shouldn't have to reach for the keyboard either)
 gameWrap.addEventListener('touchstart', () => {
+  if (gameOver) resetGame();
+});
+gameWrap.addEventListener('mousedown', () => {
   if (gameOver) resetGame();
 });
 
